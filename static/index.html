@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Elysium - AI Storyteller</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Georgia', serif;
+        }
+        #game-container {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 2rem;
+        }
+        @media (min-width: 1024px) {
+            #game-container {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        .choice-button {
+            transition: background-color 0.2s ease-in-out;
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 4px solid #fff;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-6xl mx-auto">
+        <!-- Start Screen -->
+        <div id="start-screen" class="text-center">
+            <h1 class="text-5xl font-bold mb-4 text-white">Project Elysium</h1>
+            <p class="text-xl text-gray-400 mb-8">Your AI-Powered Storytelling Adventure</p>
+            <div class="max-w-md mx-auto">
+                <input type="text" id="user-idea" class="w-full bg-gray-800 border border-gray-700 text-white rounded-lg p-3 mb-4 focus:ring-2 focus:ring-indigo-500 focus:outline-none" placeholder="e.g., a knight in a haunted forest">
+                <button id="start-button" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg text-lg">
+                    Begin Adventure
+                </button>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="hidden">
+            <div id="game-container">
+                <!-- Image Column -->
+                <div id="image-container" class="bg-gray-800 rounded-lg shadow-lg flex items-center justify-center p-4 min-h-[300px] lg:min-h-[500px]">
+                    <div id="image-placeholder" class="text-gray-500">Waiting for the first scene...</div>
+                    <img id="scene-image" src="" class="hidden max-w-full max-h-full rounded-md object-contain"/>
+                    <div id="image-loader" class="spinner hidden"></div>
+                </div>
+                <!-- Story Column -->
+                <div class="flex flex-col">
+                    <div id="story-text" class="bg-gray-800 p-6 rounded-lg shadow-lg flex-1 mb-4 text-lg leading-relaxed">
+                        <!-- Story text will be inserted here -->
+                    </div>
+                    <div id="choices-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <button id="choice-a" class="choice-button bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-lg"></button>
+                        <button id="choice-b" class="choice-button bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-lg"></button>
+                    </div>
+                    <div id="story-loader" class="mt-4 flex items-center justify-center text-gray-400 hidden">
+                        <div class="spinner mr-3"></div>
+                        Dungeon Master is thinking...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const startScreen = document.getElementById('start-screen');
+        const gameScreen = document.getElementById('game-screen');
+        const startButton = document.getElementById('start-button');
+        const userIdeaInput = document.getElementById('user-idea');
+
+        const storyTextElement = document.getElementById('story-text');
+        const sceneImageElement = document.getElementById('scene-image');
+        const imagePlaceholder = document.getElementById('image-placeholder');
+        const imageLoader = document.getElementById('image-loader');
+        const storyLoader = document.getElementById('story-loader');
+        const choicesContainer = document.getElementById('choices-container');
+        const choiceAButton = document.getElementById('choice-a');
+        const choiceBButton = document.getElementById('choice-b');
+
+        let socket;
+
+        function showGameScreen() {
+            startScreen.classList.add('hidden');
+            gameScreen.classList.remove('hidden');
+        }
+
+        function showLoaders() {
+            storyTextElement.innerHTML = "";
+            storyLoader.classList.remove('hidden');
+            choicesContainer.classList.add('hidden');
+            imagePlaceholder.classList.add('hidden');
+            sceneImageElement.classList.add('hidden');
+            imageLoader.classList.remove('hidden');
+        }
+
+        function hideLoaders() {
+            storyLoader.classList.add('hidden');
+            choicesContainer.classList.remove('hidden');
+            imageLoader.classList.add('hidden');
+        }
+
+        function parseStory(text) {
+            // Find the last occurrences of A) and B)
+            const choiceAIndex = text.lastIndexOf("A)");
+            const choiceBIndex = text.lastIndexOf("B)");
+
+            if (choiceAIndex !== -1 && choiceBIndex !== -1) {
+                const story = text.substring(0, choiceAIndex).trim();
+                const choiceA = text.substring(choiceAIndex + 2, choiceBIndex).trim();
+                const choiceB = text.substring(choiceBIndex + 2).trim();
+                return { story, choiceA, choiceB };
+            }
+            return { story: text, choiceA: null, choiceB: null };
+        }
+
+        startButton.addEventListener('click', () => {
+            const userIdea = userIdeaInput.value || "a knight in a haunted forest";
+            showGameScreen();
+            connectWebSocket(userIdea);
+        });
+
+        function connectWebSocket(userIdea) {
+            // Use wss:// for secure connection in production
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            socket = new WebSocket(`${protocol}//${window.location.host}/ws/game`);
+
+            socket.onopen = () => {
+                console.log("WebSocket connected!");
+                showLoaders();
+                socket.send(JSON.stringify({ idea: userIdea }));
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'story') {
+                    hideLoaders();
+                    const { story, choiceA, choiceB } = parseStory(data.text);
+                    storyTextElement.innerHTML = story.replace(/\n/g, '<br>');
+                    if (choiceA && choiceB) {
+                        choiceAButton.textContent = `A) ${choiceA}`;
+                        choiceBButton.textContent = `B) ${choiceB}`;
+                        choicesContainer.classList.remove('hidden');
+                    } else {
+                        choicesContainer.classList.add('hidden');
+                    }
+                } else if (data.type === 'image') {
+                    imageLoader.classList.add('hidden');
+                    sceneImageElement.src = `data:image/png;base64,${data.data}`;
+                    sceneImageElement.classList.remove('hidden');
+                }
+            };
+
+            socket.onclose = () => {
+                console.log("WebSocket disconnected.");
+                storyTextElement.textContent = "Connection lost. Please refresh to start a new game.";
+                choicesContainer.classList.add('hidden');
+            };
+
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                storyTextElement.textContent = "An error occurred. Please refresh to start a new game.";
+            };
+        }
+
+        choiceAButton.addEventListener('click', () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                showLoaders();
+                socket.send(JSON.stringify({ choice: 'A' }));
+            }
+        });
+
+        choiceBButton.addEventListener('click', () => {
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                showLoaders();
+                socket.send(JSON.stringify({ choice: 'B' }));
+            }
+        });
+    </script>
+</body>
+</html>
